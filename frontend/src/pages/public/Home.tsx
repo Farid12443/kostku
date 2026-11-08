@@ -19,27 +19,30 @@ export default function Home() {
 
   return (
     <div>
-      <section className="bg-teal-900 text-white">
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 py-14 md:grid-cols-[1fr_auto] md:items-end md:py-20">
+      {/* Tinggi navbar 65px dikurangi agar navbar dan hero pas satu layar */}
+      <section className="relative flex min-h-[calc(100svh-65px)] items-end overflow-hidden bg-teal-900 text-white">
+        <img src="/images/hero.jpg" alt="" fetchPriority="high" className="absolute inset-0 h-full w-full object-cover object-[68%_center]" />
+        <div className="absolute inset-0 bg-linear-to-t from-stone-950/85 from-25% via-stone-950/50 via-55% to-stone-950/10" aria-hidden />
+        <div className="relative mx-auto grid w-full max-w-6xl gap-8 px-4 py-14 md:grid-cols-[1fr_auto] md:items-end md:py-20">
           <div>
             {kosLoading ? (
-              <div className="h-12 w-64 animate-pulse rounded-lg bg-teal-800" />
+              <div className="h-12 w-64 animate-pulse rounded-lg bg-white/20" />
             ) : (
-              <h1 className="text-4xl font-bold md:text-5xl">{kos?.name ?? 'Kos'}</h1>
+              <h1 className="text-4xl font-bold md:text-6xl">{kos?.name ?? 'Kos'}</h1>
             )}
-            <p className="mt-3 max-w-xl text-lg text-teal-50">{kos?.tagline}</p>
+            <p className="mt-3 max-w-xl text-lg text-white">{kos?.tagline}</p>
             <Link to="/rooms" className="btn mt-6 bg-amber-400 text-stone-900 hover:bg-amber-300">
               Lihat Kamar
             </Link>
           </div>
           {rooms && rooms.length > 0 && (
-            <dl className="flex gap-8 border-t border-teal-700 pt-4 md:border-l md:border-t-0 md:pl-8 md:pt-0">
+            <dl className="flex gap-8 border-t border-white/30 pt-4 md:border-l md:border-t-0 md:pl-8 md:pt-0">
               <div>
-                <dt className="text-sm text-teal-100">Kamar kosong</dt>
+                <dt className="text-sm text-white">Kamar kosong</dt>
                 <dd className="text-2xl font-bold">{rooms.length}</dd>
               </div>
               <div>
-                <dt className="text-sm text-teal-100">Mulai dari</dt>
+                <dt className="text-sm text-white">Mulai dari</dt>
                 <dd className="text-2xl font-bold">{formatRupiah(rooms[0].price_monthly)}</dd>
               </div>
             </dl>
