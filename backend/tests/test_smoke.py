@@ -1,283 +1,263 @@
+import os
+from datetime import date, timedelta
+from pathlib import Path
+
+# Harus sebelum import app, agar test tidak bergantung pada .env dan tidak menyentuh database asli.
+os.environ.update(
+    DATABASE_URL="sqlite:///:memory:",
+    SECRET_KEY="kunci-khusus-test-yang-panjangnya-cukup-aman",
+    ADMIN_EMAIL="admin@kos.local",
+    ADMIN_PASSWORD="Admin12345",
+    ADMIN_NAME="Pemilik Kos",
+)
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app import storage
 from app.database import Base, get_db
 from app.main import app
-from app.models import User, Room, Booking, Payment, KosProfile
-from app.security import get_password_hash, create_access_token
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta
+from app.seed import seed_data
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+JPEG = ("kamar.jpg", b"\xff\xd8\xff-foto", "image/jpeg")
+MP4 = ("tur.mp4", b"\x00\x00\x00\x18ftypmp4-video", "video/mp4")
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @pytest.fixture
-def db_session():
-    Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def client(tmp_path, monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
+    Session = sessionmaker(bind=engine, autoflush=False)
+    Base.metadata.create_all(engine)
+    with Session() as db:
+        seed_data(db)
 
-@pytest.fixture
-def client(db_session):
+    for folder in ("photos", "videos", "proofs"):
+        (tmp_path / folder).mkdir()
+    monkeypatch.setattr(storage, "UPLOAD_DIR", tmp_path)
+
     def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-    
+        with Session() as db:
+            yield db
+
     app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
     app.dependency_overrides.clear()
+    engine.dispose()
 
-@pytest.fixture
-def admin_user(db_session):
-    user = User(
-        name="Admin Test",
-        email="admin@test.com",
-        password_hash=get_password_hash("Admin123"),
-        role="admin",
-        is_active=True
-    )
-    db_session.add(user)
-    db_session.commit()
-    db_session.refresh(user)
-    return user
 
-@pytest.fixture
-def regular_user(db_session):
-    user = User(
-        name="User Test",
-        email="user@test.com",
-        password_hash=get_password_hash("User12345"),
-        role="user",
-        is_active=True
-    )
-    db_session.add(user)
-    db_session.commit()
-    db_session.refresh(user)
-    return user
+def auth(client, email, password):
+    response = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
-@pytest.fixture
-def admin_token(admin_user):
-    return create_access_token(data={"sub": admin_user.email})
 
-@pytest.fixture
-def user_token(regular_user):
-    return create_access_token(data={"sub": regular_user.email})
+def admin_auth(client):
+    return auth(client, "admin@kos.local", "Admin12345")
 
-@pytest.fixture
-def kos_profile(db_session):
-    profile = KosProfile(
-        id=1,
-        name="Kos Test",
-        address="Jl. Test No. 1",
-        city="Jakarta",
-        bank_name="BCA",
-        bank_account_number="1234567890",
-        bank_account_name="Pemilik"
-    )
-    db_session.add(profile)
-    db_session.commit()
-    db_session.refresh(profile)
-    return profile
 
-@pytest.fixture
-def test_room(db_session):
-    room = Room(
-        name="Kamar Test",
-        floor=1,
-        room_type="campur",
-        size_m2=3.5,
-        price_monthly=1000000,
-        deposit=500000,
-        status="available",
-        is_published=True
-    )
-    db_session.add(room)
-    db_session.commit()
-    db_session.refresh(room)
-    return room
+def new_user(client, name):
+    email = f"{name}@contoh.com"
+    response = client.post("/api/auth/register", json={"name": name, "email": email, "password": "Password123"})
+    assert response.status_code == 200, response.text
+    assert response.json()["role"] == "user"
+    return auth(client, email, "Password123")
 
-def test_register_login(client):
-    response = client.post("/api/auth/register", json={
-        "name": "New User",
-        "email": "newuser@test.com",
-        "password": "Password123"
-    })
-    assert response.status_code == 200
-    data = response.json()
-    assert data["email"] == "newuser@test.com"
-    
-    response = client.post("/api/auth/login", json={
-        "email": "newuser@test.com",
-        "password": "Password123"
-    })
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
 
-def test_create_room(client, admin_token):
+def new_room(client, admin, name="Kamar Uji"):
     response = client.post(
         "/api/admin/rooms",
-        json={
-            "name": "Kamar Baru",
-            "floor": 1,
-            "room_type": "putra",
-            "price_monthly": 1200000,
-            "deposit": 600000,
-            "status": "available",
-            "is_published": True,
-            "facility_ids": []
-        },
-        headers={"Authorization": f"Bearer {admin_token}"}
+        headers=admin,
+        json={"name": name, "room_type": "campur", "price_monthly": 1000000, "deposit": 500000, "facility_ids": [1, 2]},
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Kamar Baru"
+    assert response.status_code == 200, response.text
+    return response.json()
 
-def test_create_booking(client, user_token, test_room):
-    start_date = date.today() + timedelta(days=7)
-    response = client.post(
-        "/api/bookings",
-        json={
-            "room_id": test_room.id,
-            "start_date": start_date.isoformat(),
-            "duration_months": 3,
-            "note": "Test booking"
-        },
-        headers={"Authorization": f"Bearer {user_token}"}
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "pending"
-    assert data["monthly_price"] == test_room.price_monthly
 
-def test_booking_overlap(client, user_token, test_room):
-    start_date = date.today() + timedelta(days=7)
-    
-    booking1 = Booking(
-        code="KOS-TEST-001",
-        user_id=1,
-        room_id=test_room.id,
-        start_date=start_date,
-        duration_months=3,
-        end_date=start_date + relativedelta(months=3),
-        monthly_price=test_room.price_monthly,
-        deposit=test_room.deposit,
-        total_amount=test_room.price_monthly * 3 + test_room.deposit,
-        status="approved"
+def book(client, headers, room_id, days=7, months=3):
+    start = (date.today() + timedelta(days=days)).isoformat()
+    return client.post(
+        "/api/bookings", headers=headers, json={"room_id": room_id, "start_date": start, "duration_months": months}
     )
-    
-    response = client.post(
-        "/api/bookings",
-        json={
-            "room_id": test_room.id,
-            "start_date": start_date.isoformat(),
-            "duration_months": 2,
-            "note": "Overlapping booking"
-        },
-        headers={"Authorization": f"Bearer {user_token}"}
-    )
-    assert response.status_code == 400
 
-def test_approve_booking(client, admin_token, db_session, regular_user, test_room):
-    start_date = date.today() + timedelta(days=7)
-    booking = Booking(
-        code="KOS-TEST-002",
-        user_id=regular_user.id,
-        room_id=test_room.id,
-        start_date=start_date,
-        duration_months=3,
-        end_date=start_date + relativedelta(months=3),
-        monthly_price=test_room.price_monthly,
-        deposit=test_room.deposit,
-        total_amount=test_room.price_monthly * 3 + test_room.deposit,
-        status="pending"
-    )
-    db_session.add(booking)
-    db_session.commit()
-    db_session.refresh(booking)
-    
-    response = client.post(
-        f"/api/admin/bookings/{booking.id}/approve",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    assert response.status_code == 200
-    
-    db_session.refresh(booking)
-    assert booking.status == "approved"
-    
-    db_session.refresh(test_room)
-    assert test_room.status == "occupied"
 
-def test_upload_payment_verify(client, admin_token, user_token, db_session, regular_user, test_room):
-    start_date = date.today() + timedelta(days=7)
-    booking = Booking(
-        code="KOS-TEST-003",
-        user_id=regular_user.id,
-        room_id=test_room.id,
-        start_date=start_date,
-        duration_months=3,
-        end_date=start_date + relativedelta(months=3),
-        monthly_price=test_room.price_monthly,
-        deposit=test_room.deposit,
-        total_amount=test_room.price_monthly * 3 + test_room.deposit,
-        status="approved"
-    )
-    db_session.add(booking)
-    db_session.commit()
-    db_session.refresh(booking)
-    
-    import io
-    from PIL import Image
-    
-    img = Image.new('RGB', (100, 100), color='red')
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='JPEG')
-    img_byte_arr.seek(0)
-    
-    payment = Payment(
-        booking_id=booking.id,
-        amount=test_room.deposit,
-        proof_path="proofs/test.jpg",
-        status="pending",
-        paid_at=datetime.utcnow()
-    )
-    db_session.add(payment)
-    db_session.commit()
-    db_session.refresh(payment)
-    
-    response = client.post(
-        f"/api/admin/payments/{payment.id}/verify",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    assert response.status_code == 200
-    
-    db_session.refresh(payment)
-    assert payment.status == "verified"
+def test_full_flow(client):
+    admin = admin_auth(client)
+    room = new_room(client, admin)
+    assert [f["id"] for f in room["facilities"]] == [1, 2]
+    alice, bob = new_user(client, "alice"), new_user(client, "bob")
 
-def test_dashboard(client, admin_token, kos_profile):
-    response = client.get(
-        "/api/admin/dashboard",
-        headers={"Authorization": f"Bearer {admin_token}"}
+    first = book(client, alice, room["id"])
+    assert first.status_code == 200, first.text
+    booking = first.json()
+    assert booking["status"] == "pending"
+    assert booking["total_amount"] == 3500000
+    assert booking["code"].startswith("KOS-")
+
+    # Dua pending boleh bersamaan, tetapi hanya satu yang bisa di-approve
+    second = book(client, bob, room["id"])
+    assert second.status_code == 200, second.text
+
+    approve = client.post(f"/api/admin/bookings/{booking['id']}/approve", headers=admin)
+    assert approve.status_code == 200, approve.text
+    assert client.post(f"/api/admin/bookings/{second.json()['id']}/approve", headers=admin).status_code == 400
+    assert book(client, bob, room["id"], days=14).status_code == 400
+    assert client.get(f"/api/rooms/{room['id']}").json()["status"] == "occupied"
+
+    paid = client.post(
+        f"/api/bookings/{booking['id']}/payments", headers=alice,
+        data={"amount": "3500000"}, files={"proof": ("bukti.png", b"\x89PNG-bukti", "image/png")},
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert "rooms" in data
-    assert "pending_bookings" in data
-    assert "revenue_by_month" in data
+    assert paid.status_code == 200, paid.text
+    payment = paid.json()
+    assert payment["proof_url"] == f"/uploads/{payment['proof_path']}"
+    assert (storage.UPLOAD_DIR / payment["proof_path"]).exists()
+
+    verify = client.post(f"/api/admin/payments/{payment['id']}/verify", headers=admin)
+    assert verify.status_code == 200, verify.text
+
+    detail = client.get(f"/api/bookings/{booking['id']}", headers=alice).json()
+    assert detail["status"] == "active"
+    assert detail["total_paid"] == 3500000
+    assert detail["remaining_balance"] == 0
+    assert detail["kos_profile"]["bank_name"]
+    assert client.get(f"/api/rooms/{room['id']}").json()["status"] == "occupied"
+
+    stats = client.get("/api/admin/dashboard", headers=admin).json()
+    assert stats["revenue_this_month"] == 3500000
+    assert stats["active_tenants"] == 1
+    assert len(stats["revenue_by_month"]) == 6
+
+    assert client.get(f"/api/admin/bookings/{booking['id']}", headers=admin).status_code == 200
+    assert client.get("/api/admin/bookings?q=alice", headers=admin).json()["total"] == 1
+    assert client.get("/api/admin/payments?status=verified", headers=admin).json()["total"] == 1
+
+
+def test_seed_public_data(client):
+    rooms = client.get("/api/rooms").json()
+    assert len(rooms) == 6
+    prices = [room["price_monthly"] for room in rooms]
+    assert min(prices) == 800000 and max(prices) == 1800000
+    assert all(room["cover_url"] is None for room in rooms)
+    assert len(client.get("/api/facilities").json()) == 8
+    assert client.get("/api/kos").json()["name"] == "Kos Contoh"
+    assert auth(client, "user@kos.local", "User12345")
+
+
+def test_room_filters(client):
+    both = client.get("/api/rooms", params={"facility_ids": "2,8"}).json()
+    assert {room["name"] for room in both} == {"Kamar B1", "Kamar C1"}
+    ordered = client.get("/api/rooms", params={"sort": "price_desc"}).json()
+    assert ordered[0]["name"] == "Kamar C1"
+    assert client.get("/api/rooms", params={"facility_ids": "abc"}).status_code == 400
+
+
+def test_media_rules(client):
+    admin = admin_auth(client)
+    room = new_room(client, admin)
+    url = f"/api/admin/rooms/{room['id']}/media"
+
+    uploaded = client.post(url, headers=admin, files=[("files", JPEG), ("files", JPEG), ("files", MP4)])
+    assert uploaded.status_code == 200, uploaded.text
+    media = uploaded.json()
+    assert [m["media_type"] for m in media] == ["photo", "photo", "video"]
+    assert [m["is_cover"] for m in media] == [True, False, False]
+    assert (storage.UPLOAD_DIR / media[2]["file_path"]).exists()
+
+    assert client.post(url, headers=admin, files=[("files", ("x.exe", b"MZ", "image/jpeg"))]).status_code == 400
+    assert client.post(url, headers=admin, files=[("files", ("x.jpg", b"x", "text/plain"))]).status_code == 400
+
+    too_big = ("besar.jpg", b"0" * (5 * 1024 * 1024 + 1), "image/jpeg")
+    assert client.post(url, headers=admin, files=[("files", too_big)]).status_code == 400
+    assert len(list(Path(storage.UPLOAD_DIR, "photos").iterdir())) == 2
+
+    assert client.patch(f"/api/admin/media/{media[2]['id']}", headers=admin, json={"is_cover": True}).status_code == 400
+    assert client.patch(f"/api/admin/media/{media[1]['id']}", headers=admin, json={"is_cover": True}).status_code == 200
+    detail = client.get(f"/api/rooms/{room['id']}").json()
+    assert detail["cover_url"] == media[1]["url"]
+    assert sum(m["is_cover"] for m in detail["media"]) == 1
+
+    assert client.delete(f"/api/admin/media/{media[1]['id']}", headers=admin).status_code == 200
+    assert not (storage.UPLOAD_DIR / media[1]["file_path"]).exists()
+    assert client.get(f"/api/rooms/{room['id']}").json()["cover_url"] == media[0]["url"]
+
+
+def test_status_transitions(client):
+    admin, user = admin_auth(client), new_user(client, "carol")
+    room = new_room(client, admin)
+    booking = book(client, user, room["id"]).json()
+    path = f"/api/admin/bookings/{booking['id']}"
+
+    assert client.post(f"{path}/activate", headers=admin).status_code == 400
+    assert client.post(f"{path}/finish", headers=admin).status_code == 400
+    assert client.post(f"{path}/cancel", headers=admin).status_code == 400
+    assert client.post(f"{path}/reject", headers=admin, json={}).status_code == 422
+
+    assert client.post(f"{path}/approve", headers=admin).status_code == 200
+    assert client.post(f"{path}/activate", headers=admin).status_code == 200
+    assert client.post(f"{path}/cancel", headers=admin).status_code == 400
+    assert client.post(f"/api/bookings/{booking['id']}/cancel", headers=user).status_code == 400
+    assert client.post(f"{path}/finish", headers=admin).status_code == 200
+    assert client.get(f"/api/rooms/{room['id']}").json()["status"] == "available"
+    assert client.post(f"{path}/approve", headers=admin).status_code == 400
+
+
+def test_booking_validation(client):
+    admin, user = admin_auth(client), new_user(client, "dina")
+    room = new_room(client, admin)
+
+    assert book(client, user, room["id"], days=-1).status_code == 400
+    assert book(client, user, room["id"], months=25).status_code == 422
+    assert book(client, admin, room["id"]).status_code == 403
+    maintenance = next(r for r in client.get("/api/rooms").json() if r["status"] == "maintenance")
+    assert book(client, user, maintenance["id"]).status_code == 400
+
+    for offset in (0, 120, 240):
+        assert book(client, user, room["id"], days=7 + offset).status_code == 200
+    assert book(client, user, room["id"], days=500).status_code == 400
+
+
+def test_access_and_room_delete(client):
+    admin, user = admin_auth(client), new_user(client, "eko")
+    other = new_user(client, "fani")
+    room = new_room(client, admin)
+    booking = book(client, user, room["id"]).json()
+
+    assert client.get("/api/admin/dashboard").status_code == 401
+    assert client.get("/api/admin/dashboard", headers=user).status_code == 403
+    assert client.get(f"/api/bookings/{booking['id']}", headers=other).status_code == 403
+    assert client.post(f"/api/bookings/{booking['id']}/cancel", headers=other).status_code == 403
+    assert client.post("/api/auth/login", json={"email": "admin@kos.local", "password": "salah-sekali"}).status_code == 401
+
+    client.post(f"/api/admin/bookings/{booking['id']}/approve", headers=admin)
+    assert client.delete(f"/api/admin/rooms/{room['id']}", headers=admin).status_code == 400
+    assert client.post(f"/api/bookings/{booking['id']}/cancel", headers=user).status_code == 200
+    assert client.delete(f"/api/admin/rooms/{room['id']}", headers=admin).status_code == 200
+
+    me = client.get("/api/auth/me", headers=admin).json()
+    assert client.patch(f"/api/admin/users/{me['id']}", headers=admin, json={"is_active": False}).status_code == 400
+    target = client.get("/api/auth/me", headers=other).json()
+    assert client.patch(f"/api/admin/users/{target['id']}", headers=admin, json={"is_active": False}).status_code == 200
+    assert client.get("/api/auth/me", headers=other).status_code == 403
+
+
+def test_payment_rejection_keeps_proof(client):
+    admin, user = admin_auth(client), new_user(client, "gita")
+    room = new_room(client, admin)
+    booking = book(client, user, room["id"]).json()
+    payment_url = f"/api/bookings/{booking['id']}/payments"
+    files = {"proof": JPEG}
+
+    assert client.post(payment_url, headers=user, data={"amount": "1000"}, files=files).status_code == 400
+    client.post(f"/api/admin/bookings/{booking['id']}/approve", headers=admin)
+    assert client.post(payment_url, headers=user, data={"amount": "0"}, files=files).status_code == 422
+
+    payment = client.post(payment_url, headers=user, data={"amount": "1000"}, files=files).json()
+    rejected = client.post(f"/api/admin/payments/{payment['id']}/reject", headers=admin, json={"admin_note": "Buram"})
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["admin_note"] == "Buram"
+    assert (storage.UPLOAD_DIR / payment["proof_path"]).exists()
+    assert client.post(f"/api/admin/payments/{payment['id']}/verify", headers=admin).status_code == 400

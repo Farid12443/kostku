@@ -4,3 +4,7 @@ frontend/node_modules/.
 backend/.env
 backend/.venv
 backend/uploads/
+backend/kos.db
+__pycache__/
+*.pyc
+.pytest_cache/

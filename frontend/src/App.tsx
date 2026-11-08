@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './auth';
+import { ToastProvider } from './components/Toast';
 import PublicLayout from './layouts/PublicLayout';
 import AdminLayout from './layouts/AdminLayout';
 import Home from './pages/public/Home';
@@ -20,46 +21,50 @@ import Users from './pages/admin/Users';
 import Settings from './pages/admin/Settings';
 import ProtectedRoute from './components/ProtectedRoute';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+});
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route element={<PublicLayout />}>
-              <Route path="/" element={<Home />} />
-              <Route path="/rooms" element={<Rooms />} />
-              <Route path="/rooms/:id" element={<RoomDetail />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-            </Route>
-
-            <Route element={<ProtectedRoute role="user" />}>
+        <ToastProvider>
+          <BrowserRouter>
+            <Routes>
               <Route element={<PublicLayout />}>
-                <Route path="/my/bookings" element={<MyBookings />} />
-                <Route path="/my/bookings/:id" element={<BookingDetail />} />
+                <Route path="/" element={<Home />} />
+                <Route path="/rooms" element={<Rooms />} />
+                <Route path="/rooms/:id" element={<RoomDetail />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
               </Route>
-            </Route>
 
-            <Route element={<ProtectedRoute role="admin" />}>
-              <Route element={<AdminLayout />}>
-                <Route path="/admin" element={<Dashboard />} />
-                <Route path="/admin/rooms" element={<AdminRooms />} />
-                <Route path="/admin/rooms/new" element={<RoomForm />} />
-                <Route path="/admin/rooms/:id/edit" element={<RoomForm />} />
-                <Route path="/admin/facilities" element={<Facilities />} />
-                <Route path="/admin/bookings" element={<AdminBookings />} />
-                <Route path="/admin/payments" element={<Payments />} />
-                <Route path="/admin/users" element={<Users />} />
-                <Route path="/admin/settings" element={<Settings />} />
+              <Route element={<ProtectedRoute role="user" />}>
+                <Route element={<PublicLayout />}>
+                  <Route path="/my/bookings" element={<MyBookings />} />
+                  <Route path="/my/bookings/:id" element={<BookingDetail />} />
+                </Route>
               </Route>
-            </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
+              <Route element={<ProtectedRoute role="admin" />}>
+                <Route element={<AdminLayout />}>
+                  <Route path="/admin" element={<Dashboard />} />
+                  <Route path="/admin/rooms" element={<AdminRooms />} />
+                  <Route path="/admin/rooms/new" element={<RoomForm />} />
+                  <Route path="/admin/rooms/:id/edit" element={<RoomForm />} />
+                  <Route path="/admin/facilities" element={<Facilities />} />
+                  <Route path="/admin/bookings" element={<AdminBookings />} />
+                  <Route path="/admin/payments" element={<Payments />} />
+                  <Route path="/admin/users" element={<Users />} />
+                  <Route path="/admin/settings" element={<Settings />} />
+                </Route>
+              </Route>
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

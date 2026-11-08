@@ -165,6 +165,18 @@ npm run build
 - Wajib ganti `SECRET_KEY` dan password admin, dan pakai HTTPS.
 - Backup rutin database PostgreSQL dan folder `backend/uploads/`.
 
+## Catatan Keputusan
+
+- Database memakai PostgreSQL sesuai tech stack. `.env.example` diarahkan ke PostgreSQL walaupun contoh di AGENTS.md memakai SQLite. Kode tetap mendukung SQLite lewat `DATABASE_URL`.
+- SQLAlchemy 2.1 memakai driver `psycopg` (versi 3) untuk URL `postgresql://`, jadi `requirements.txt` memakai `psycopg[binary]`.
+- Login menerima email sebagai teks biasa karena validator email menolak domain khusus seperti akun seed `@kos.local`. Register publik tetap memvalidasi format email.
+- Filter fasilitas pada `/api/rooms` menampilkan kamar yang memiliki semua fasilitas yang dipilih.
+- Menghapus kamar hanya ditolak jika ada booking `approved` atau `active`. Booking lain beserta pembayaran dan file buktinya ikut terhapus.
+- Bukti bayar yang ditolak tetap disimpan agar riwayat dan alasan penolakan bisa dilihat. File baru dihapus saat data pembayarannya dihapus.
+- Bukti bayar dilayani lewat static mount `/uploads` sesuai spesifikasi, dilindungi nama file UUID dan bukan oleh login.
+- Menghapus foto cover otomatis menjadikan foto berikutnya sebagai cover.
+- `GET /api/admin/facilities` mengembalikan daftar biasa karena datanya kecil. Daftar admin lain memakai paginasi.
+
 ## Rencana Pengembangan
 
 Payment gateway, notifikasi email atau WhatsApp otomatis, ulasan penyewa, migrasi database dengan Alembic, dan Docker.

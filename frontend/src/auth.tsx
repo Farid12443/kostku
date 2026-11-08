@@ -1,58 +1,51 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from './types';
+import { createContext, useContext, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import api from './api';
+import type { User } from './types';
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, phone?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   logout: () => void;
-  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+function readStoredUser(): User | null {
+  try {
+    const stored = localStorage.getItem('user');
+    return stored && localStorage.getItem('token') ? (JSON.parse(stored) as User) : null;
+  } catch {
+    return null;
+  }
+}
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
-    }
-    setIsLoading(false);
-  }, []);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const [user, setUser] = useState<User | null>(readStoredUser);
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
 
   const login = async (email: string, password: string) => {
     const res = await api.post('/api/auth/login', { email, password });
-    const { access_token, user: userData } = res.data;
-    setToken(access_token);
-    setUser(userData);
+    const { access_token, user: userData } = res.data as { access_token: string; user: User };
     localStorage.setItem('token', access_token);
     localStorage.setItem('user', JSON.stringify(userData));
-  };
-
-  const register = async (name: string, email: string, password: string, phone?: string) => {
-    await api.post('/api/auth/register', { name, email, password, phone });
+    setToken(access_token);
+    setUser(userData);
+    return userData;
   };
 
   const logout = () => {
-    setToken(null);
-    setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    queryClient.clear();
   };
 
-  return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, isLoading }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ user, token, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

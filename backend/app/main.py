@@ -1,19 +1,24 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
-from .database import Base, engine, get_db
+
+from . import models  # noqa: F401 - mendaftarkan tabel ke Base.metadata
 from .config import settings
+from .database import Base, SessionLocal, engine
+from .routers import admin, auth, bookings, public
 from .seed import seed_data
-from .routers import auth, public, bookings, admin
+from .storage import UPLOAD_DIR
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    db = next(get_db())
-    seed_data(db)
-    db.close()
+    with SessionLocal() as db:
+        seed_data(db)
     yield
+
 
 app = FastAPI(title="Kos API", lifespan=lifespan)
 
@@ -30,8 +35,9 @@ app.include_router(public.router)
 app.include_router(bookings.router)
 app.include_router(admin.router)
 
-app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 
 @app.get("/api/health")
-async def health():
+def health():
     return {"status": "ok"}

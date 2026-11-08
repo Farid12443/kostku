@@ -1,146 +1,79 @@
-import { Link } from 'react-router-dom';
-import { useAuth } from '../auth';
-import { LogOut, User, Home, Building2, Calendar, CreditCard, Users, Settings, Menu, X } from 'lucide-react';
 import { useState } from 'react';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Menu, X } from 'lucide-react';
+import { kosQuery } from '../api';
+import { useAuth } from '../auth';
+
+const linkClass = ({ isActive }: { isActive: boolean }) =>
+  `rounded-md px-3 py-2 text-sm font-medium ${isActive ? 'bg-teal-50 text-teal-800' : 'text-stone-700 hover:bg-stone-100'}`;
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { data: kos } = useQuery(kosQuery);
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
 
-  const navLinks = user
-    ? user.role === 'admin'
-      ? [
-          { name: 'Dashboard', path: '/admin', icon: Home },
-          { name: 'Kamar', path: '/admin/rooms', icon: Building2 },
-          { name: 'Pemesanan', path: '/admin/bookings', icon: Calendar },
-          { name: 'Pembayaran', path: '/admin/payments', icon: CreditCard },
-          { name: 'Fasilitas', path: '/admin/facilities', icon: Users },
-          { name: 'Pengguna', path: '/admin/users', icon: Users },
-          { name: 'Pengaturan', path: '/admin/settings', icon: Settings },
-        ]
-      : [
-          { name: 'Beranda', path: '/', icon: Home },
-          { name: 'Kamar', path: '/rooms', icon: Building2 },
-          { name: 'Pemesanan Saya', path: '/my/bookings', icon: Calendar },
-        ]
-    : [
-        { name: 'Beranda', path: '/', icon: Home },
-        { name: 'Kamar', path: '/rooms', icon: Building2 },
-      ];
+  const close = () => setOpen(false);
+  const handleLogout = () => {
+    logout();
+    close();
+    navigate('/');
+  };
+
+  const links = (
+    <>
+      <NavLink to="/" end className={linkClass} onClick={close}>
+        Beranda
+      </NavLink>
+      <NavLink to="/rooms" className={linkClass} onClick={close}>
+        Kamar
+      </NavLink>
+      {user?.role === 'user' && (
+        <NavLink to="/my/bookings" className={linkClass} onClick={close}>
+          Booking Saya
+        </NavLink>
+      )}
+      {user?.role === 'admin' && (
+        <NavLink to="/admin" className={linkClass} onClick={close}>
+          Panel Admin
+        </NavLink>
+      )}
+      {user ? (
+        <button type="button" onClick={handleLogout} className="rounded-md px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50">
+          Keluar
+        </button>
+      ) : (
+        <>
+          <NavLink to="/login" className={linkClass} onClick={close}>
+            Masuk
+          </NavLink>
+          <Link to="/register" className="btn btn-primary btn-sm" onClick={close}>
+            Daftar
+          </Link>
+        </>
+      )}
+    </>
+  );
 
   return (
-    <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex">
-            <Link to="/" className="flex items-center gap-2">
-              <Building2 className="h-8 w-8 text-teal-600" />
-              <span className="font-bold text-xl text-gray-900">Kos<span className="text-teal-600">Ku</span></span>
-            </Link>
-          </div>
-
-          <div className="hidden md:flex items-center space-x-4">
-            {navLinks.map((link) => (
-              <Link
-                key={link.path}
-                to={link.path}
-                className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-teal-600 hover:bg-teal-50 transition-colors"
-              >
-                <link.icon className="h-4 w-4" />
-                {link.name}
-              </Link>
-            ))}
-
-            {user ? (
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-gray-600">
-                  {user.name} ({user.role})
-                </span>
-                <button
-                  onClick={logout}
-                  className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Keluar
-                </button>
-              </div>
-            ) : (
-              <>
-                <Link
-                  to="/login"
-                  className="px-4 py-2 rounded-md text-sm font-medium text-teal-600 hover:bg-teal-50 transition-colors"
-                >
-                  Masuk
-                </Link>
-                <Link
-                  to="/register"
-                  className="px-4 py-2 rounded-md text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 transition-colors"
-                >
-                  Daftar
-                </Link>
-              </>
-            )}
-          </div>
-
-          <div className="md:hidden flex items-center">
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="p-2 rounded-md text-gray-600 hover:text-teal-600 hover:bg-teal-50"
-            >
-              {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </button>
-          </div>
-        </div>
+    <nav className="sticky top-0 z-40 border-b border-stone-200 bg-white">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
+        <Link to="/" className="text-lg font-bold text-teal-800">
+          {kos?.name ?? 'Kos'}
+        </Link>
+        <div className="hidden items-center gap-1 md:flex">{links}</div>
+        <button
+          type="button"
+          className="rounded-md p-2 text-stone-700 hover:bg-stone-100 md:hidden"
+          aria-label={open ? 'Tutup menu' : 'Buka menu'}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? <X className="h-6 w-6" aria-hidden /> : <Menu className="h-6 w-6" aria-hidden />}
+        </button>
       </div>
-
-      {isMenuOpen && (
-        <div className="md:hidden bg-white border-b border-gray-200">
-          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-            {navLinks.map((link) => (
-              <Link
-                key={link.path}
-                to={link.path}
-                onClick={() => setIsMenuOpen(false)}
-                className="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-teal-600 hover:bg-teal-50"
-              >
-                <link.icon className="h-5 w-5" />
-                {link.name}
-              </Link>
-            ))}
-            {user ? (
-              <button
-                onClick={() => {
-                  logout();
-                  setIsMenuOpen(false);
-                }}
-                className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50"
-              >
-                <LogOut className="h-5 w-5" />
-                Keluar
-              </button>
-            ) : (
-              <>
-                <Link
-                  to="/login"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium text-teal-600 hover:bg-teal-50"
-                >
-                  <User className="h-5 w-5" />
-                  Masuk
-                </Link>
-                <Link
-                  to="/register"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2 rounded-md text-base font-medium text-white bg-teal-600 hover:bg-teal-700"
-                >
-                  <User className="h-5 w-5" />
-                  Daftar
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {open && <div className="flex flex-col gap-1 border-t border-stone-200 p-3 md:hidden">{links}</div>}
     </nav>
   );
 }

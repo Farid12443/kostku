@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import type { FormEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth';
-import { Building2, AlertCircle } from 'lucide-react';
+import { useToast } from '../../components/Toast';
+import { errorMessage } from '../../utils';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -9,90 +11,54 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = location.state?.from?.pathname || '/';
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      // Redirect based on role (simple logic: admin to /admin, others to /rooms or 'from')
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
-      if (user?.role === 'admin') {
-        navigate('/admin');
-      } else {
-        navigate(from === '/' ? '/rooms' : from);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login gagal. Cek kembali email dan password Anda.');
+      const user = await login(email, password);
+      toast.success(`Selamat datang, ${user.name}`);
+      const from = location.state?.from;
+      const target = user.role === 'admin' ? '/admin' : from ? `${from.pathname}${from.search ?? ''}` : '/rooms';
+      navigate(target, { replace: true });
+    } catch (err) {
+      setError(errorMessage(err, 'Gagal masuk. Periksa email dan password Anda.'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-gray-100 p-8 space-y-8">
-        <div className="text-center">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-50 text-teal-600 mb-4">
-            <Building2 className="h-10 w-10" />
-          </div>
-          <h2 className="text-3xl font-extrabold text-gray-900">Masuk ke KosKu</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Atau{' '}
-            <Link to="/register" className="font-medium text-teal-600 hover:text-teal-500">
-              daftar akun baru di sini
-            </Link>
-          </p>
-        </div>
+    <div className="flex min-h-[75vh] items-center justify-center px-4 py-10">
+      <div className="card w-full max-w-md p-6 sm:p-8">
+        <h1 className="text-2xl font-bold text-stone-900">Masuk</h1>
+        <p className="mt-1 text-sm text-stone-600">
+          Belum punya akun?{' '}
+          <Link to="/register" state={location.state} className="font-medium text-teal-800 underline">
+            Daftar di sini
+          </Link>
+        </p>
 
         {error && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 flex items-center gap-3 text-red-700 text-sm">
-            <AlertCircle className="h-5 w-5 flex-shrink-0" />
-            <p>{error}</p>
-          </div>
+          <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+            {error}
+          </p>
         )}
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div className="space-y-1">
-            <label className="text-sm font-semibold text-gray-700" htmlFor="email">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all outline-none"
-              placeholder="nama@email.com"
-            />
+        <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
+          <div>
+            <label className="label" htmlFor="email">Email</label>
+            <input id="email" type="text" inputMode="email" autoComplete="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <div className="space-y-1">
-            <label className="text-sm font-semibold text-gray-700" htmlFor="password">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all outline-none"
-              placeholder="••••••••"
-            />
+          <div>
+            <label className="label" htmlFor="password">Password</label>
+            <input id="password" type="password" autoComplete="current-password" required className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 px-6 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-lg shadow-teal-100 transition-all active:scale-[0.98] disabled:opacity-70"
-          >
+          <button type="submit" disabled={loading} className="btn btn-primary w-full">
             {loading ? 'Memproses...' : 'Masuk'}
           </button>
         </form>
