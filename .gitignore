@@ -1,0 +1,6 @@
+AGENTS.md
+
+frontend/node_modules/.
+backend/.env
+backend/.venv
+backend/uploads/
